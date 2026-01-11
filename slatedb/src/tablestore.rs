@@ -9,7 +9,7 @@ use futures::{future::join_all, StreamExt};
 use log::{debug, warn};
 use object_store::buffered::BufWriter;
 use object_store::path::Path;
-use object_store::{ObjectStore, PutMode, PutOptions};
+use object_store::{ObjectStore, ObjectStoreExt, PutMode, PutOptions};
 use tokio::io::AsyncWriteExt;
 use ulid::Ulid;
 
@@ -602,6 +602,7 @@ mod tests {
     use bytes::Bytes;
     use futures::future;
     use futures::StreamExt;
+    use object_store::ObjectStoreExt;
     use object_store::{memory::InMemory, path::Path, ObjectStore};
     use proptest::prelude::any;
     use proptest::proptest;
@@ -828,6 +829,8 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "moka")]
     async fn test_tablestore_sst_and_partial_cache_hits() {
+        use object_store::ObjectStoreExt;
+
         use crate::db_cache::{moka::MokaCache, SplitCache};
 
         // Setup
@@ -1207,6 +1210,7 @@ mod tests {
         #[case] main_store: Arc<dyn ObjectStore>,
         #[case] wal_store: Option<Arc<dyn ObjectStore>>,
     ) {
+        use object_store::ObjectStoreExt;
         use ulid::Ulid;
 
         let format = SsTableFormat {
@@ -1278,6 +1282,8 @@ mod tests {
         #[case] main_store: Arc<dyn ObjectStore>,
         #[case] wal_store: Option<Arc<dyn ObjectStore>>,
     ) {
+        use object_store::ObjectStoreExt;
+
         let format = SsTableFormat {
             block_size: 32,
             min_filter_keys: 1,

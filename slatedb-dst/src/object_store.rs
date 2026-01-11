@@ -44,24 +44,6 @@ impl ClockedObjectStore {
             .or_insert_with(|| now);
         now
     }
-
-    /// Remove any tracked times for this path (after a successful delete or rename).
-    fn remove(&self, path: &Path) {
-        let mut guard = self.times.write();
-        guard.remove(path);
-    }
-
-    /// Apply recorded last_modified to ObjectMeta if available.
-    fn with_recorded_times(&self, meta: ObjectMeta) -> ObjectMeta {
-        let guard = self.times.read();
-        if let Some(t) = guard.get(&meta.location) {
-            return ObjectMeta {
-                last_modified: *t,
-                ..meta
-            };
-        }
-        meta
-    }
 }
 
 impl fmt::Debug for ClockedObjectStore {
@@ -86,11 +68,6 @@ impl ObjectStore for ClockedObjectStore {
         self.inner.get_opts(location, options).await
     }
 
-    async fn head(&self, location: &Path) -> object_store::Result<ObjectMeta> {
-        let meta = self.inner.head(location).await?;
-        Ok(self.with_recorded_times(meta))
-    }
-
     async fn put_opts(
         &self,
         location: &Path,
@@ -102,15 +79,6 @@ impl ObjectStore for ClockedObjectStore {
         Ok(res)
     }
 
-    async fn put_multipart(
-        &self,
-        location: &Path,
-    ) -> object_store::Result<Box<dyn MultipartUpload>> {
-        let res = self.inner.put_multipart(location).await;
-        self.record_modified(location);
-        res
-    }
-
     async fn put_multipart_opts(
         &self,
         location: &Path,
@@ -119,12 +87,6 @@ impl ObjectStore for ClockedObjectStore {
         let res = self.inner.put_multipart_opts(location, opts).await;
         self.record_modified(location);
         res
-    }
-
-    async fn delete(&self, location: &Path) -> object_store::Result<()> {
-        self.inner.delete(location).await?;
-        self.remove(location);
-        Ok(())
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
@@ -192,30 +154,37 @@ impl ObjectStore for ClockedObjectStore {
         Ok(result)
     }
 
-    async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.inner.copy(from, to).await?;
-        self.record_modified(to);
-        Ok(())
+    fn delete_stream(
+        &self,
+        locations: BoxStream<'static, object_store::Result<Path>>,
+    ) -> BoxStream<'static, object_store::Result<Path>> {
+        use futures::TryStreamExt;
+        use object_store::ObjectStoreExt;
+
+        let inner = self.inner.clone();
+        let times = self.times.clone();
+        locations
+            .and_then(move |location| {
+                let inner = inner.clone();
+                let times = times.clone();
+                async move {
+                    inner.delete(&location).await?;
+                    times.write().remove(&location);
+                    Ok(location)
+                }
+            })
+            .boxed()
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.inner.rename(from, to).await?;
-        self.remove(from);
+    async fn copy_opts(
+        &self,
+        from: &Path,
+        to: &Path,
+        opts: object_store::CopyOptions,
+    ) -> object_store::Result<()> {
+        let res = self.inner.copy_opts(from, to, opts).await?;
         self.record_modified(to);
-        Ok(())
-    }
-
-    async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.inner.copy_if_not_exists(from, to).await?;
-        self.record_modified(to);
-        Ok(())
-    }
-
-    async fn rename_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.inner.rename_if_not_exists(from, to).await?;
-        self.remove(from);
-        self.record_modified(to);
-        Ok(())
+        Ok(res)
     }
 }
 
@@ -224,7 +193,7 @@ mod tests {
     use super::*;
     use futures::TryStreamExt;
     use object_store::memory::InMemory;
-    use object_store::PutPayload;
+    use object_store::{ObjectStoreExt, PutPayload};
     use slatedb::clock::MockSystemClock;
 
     fn p(s: &str) -> Path {

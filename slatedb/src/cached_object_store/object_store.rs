@@ -3,7 +3,9 @@ use crate::cached_object_store::LocalCacheEntry;
 use bytes::{Bytes, BytesMut};
 use futures::{future::BoxFuture, stream, stream::BoxStream, StreamExt};
 use object_store::{path::Path, GetOptions, GetResult, ObjectMeta, ObjectStore};
-use object_store::{Attributes, GetRange, GetResultPayload, PutMultipartOptions, PutResult};
+use object_store::{
+    Attributes, GetRange, GetResultPayload, ObjectStoreExt, PutMultipartOptions, PutResult,
+};
 use object_store::{ListResult, MultipartUpload, PutOptions, PutPayload};
 use std::{ops::Range, sync::Arc};
 
@@ -494,10 +496,6 @@ impl ObjectStore for CachedObjectStore {
         self.cached_get_opts(location, options).await
     }
 
-    async fn head(&self, location: &Path) -> object_store::Result<ObjectMeta> {
-        self.cached_head(location).await
-    }
-
     async fn put_opts(
         &self,
         location: &Path,
@@ -507,24 +505,12 @@ impl ObjectStore for CachedObjectStore {
         self.cached_put_opts(location, payload, opts).await
     }
 
-    async fn put_multipart(
-        &self,
-        location: &Path,
-    ) -> object_store::Result<Box<dyn MultipartUpload>> {
-        self.object_store.put_multipart(location).await
-    }
-
     async fn put_multipart_opts(
         &self,
         location: &Path,
         opts: PutMultipartOptions,
     ) -> object_store::Result<Box<dyn MultipartUpload>> {
         self.object_store.put_multipart_opts(location, opts).await
-    }
-
-    async fn delete(&self, location: &Path) -> object_store::Result<()> {
-        // TODO: handle cache eviction
-        self.object_store.delete(location).await
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
@@ -543,20 +529,20 @@ impl ObjectStore for CachedObjectStore {
         self.object_store.list_with_delimiter(prefix).await
     }
 
-    async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.object_store.copy(from, to).await
+    fn delete_stream(
+        &self,
+        locations: BoxStream<'static, object_store::Result<Path>>,
+    ) -> BoxStream<'static, object_store::Result<Path>> {
+        self.object_store.delete_stream(locations)
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.object_store.rename(from, to).await
-    }
-
-    async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.object_store.copy_if_not_exists(from, to).await
-    }
-
-    async fn rename_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        self.object_store.rename_if_not_exists(from, to).await
+    async fn copy_opts(
+        &self,
+        from: &Path,
+        to: &Path,
+        opts: object_store::CopyOptions,
+    ) -> object_store::Result<()> {
+        self.object_store.copy_opts(from, to, opts).await
     }
 }
 
@@ -573,6 +559,7 @@ pub(crate) enum InvalidGetRange {
 mod tests {
     use std::sync::Arc;
 
+    use object_store::ObjectStoreExt;
     use object_store::{path::Path, GetOptions, GetRange, ObjectStore, PutPayload};
     use rand::Rng;
 

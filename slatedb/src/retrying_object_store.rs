@@ -63,7 +63,7 @@ impl RetryingObjectStore {
             err,
             object_store::Error::AlreadyExists { .. }
                 | object_store::Error::Precondition { .. }
-                | object_store::Error::NotImplemented
+                | object_store::Error::NotImplemented { .. }
                 | object_store::Error::NotSupported { .. }
         );
         if !retry {
@@ -115,7 +115,7 @@ impl RetryingObjectStore {
             object_store::Error::AlreadyExists { .. }
                 | object_store::Error::Precondition { .. }
                 | object_store::Error::NotFound { .. }
-                | object_store::Error::NotImplemented
+                | object_store::Error::NotImplemented { .. }
                 | object_store::Error::NotSupported { .. }
         );
         if !retry {
@@ -212,14 +212,6 @@ impl ObjectStore for RetryingObjectStore {
         .await
     }
 
-    async fn head(&self, location: &Path) -> object_store::Result<ObjectMeta> {
-        (|| async { self.inner.head(location).await })
-            .retry(Self::retry_builder())
-            .notify(Self::notify)
-            .when(Self::should_retry)
-            .await
-    }
-
     async fn put_opts(
         &self,
         location: &Path,
@@ -259,7 +251,8 @@ impl ObjectStore for RetryingObjectStore {
         // If attributes aren't supported, fall back to put without ULID
         if matches!(
             &result,
-            Err(object_store::Error::NotSupported { .. } | object_store::Error::NotImplemented)
+            Err(object_store::Error::NotSupported { .. }
+                | object_store::Error::NotImplemented { .. })
         ) && put_id.is_some()
         {
             return (|| async {
@@ -289,14 +282,6 @@ impl ObjectStore for RetryingObjectStore {
         }
     }
 
-    async fn put_multipart(
-        &self,
-        location: &Path,
-    ) -> object_store::Result<Box<dyn MultipartUpload>> {
-        self.put_multipart_opts(location, PutMultipartOptions::default())
-            .await
-    }
-
     async fn put_multipart_opts(
         &self,
         location: &Path,
@@ -321,7 +306,10 @@ impl ObjectStore for RetryingObjectStore {
         // If attributes aren't supported, fall back without ULID
         let inner = match result {
             Ok(inner) => inner,
-            Err(object_store::Error::NotSupported { .. } | object_store::Error::NotImplemented) => {
+            Err(
+                object_store::Error::NotSupported { .. }
+                | object_store::Error::NotImplemented { .. },
+            ) => {
                 (|| async { self.inner.put_multipart_opts(location, opts.clone()).await })
                     .retry(Self::retry_builder())
                     .notify(Self::notify)
@@ -337,14 +325,6 @@ impl ObjectStore for RetryingObjectStore {
             location: location.clone(),
             put_id,
         }))
-    }
-
-    async fn delete(&self, location: &Path) -> object_store::Result<()> {
-        (|| async { self.inner.delete(location).await })
-            .retry(Self::retry_builder())
-            .notify(Self::notify)
-            .when(Self::should_retry)
-            .await
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
@@ -426,32 +406,20 @@ impl ObjectStore for RetryingObjectStore {
             .await
     }
 
-    async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        (|| async { self.inner.copy(from, to).await })
-            .retry(Self::retry_builder())
-            .notify(Self::notify)
-            .when(Self::should_retry)
-            .await
+    fn delete_stream(
+        &self,
+        locations: BoxStream<'static, object_store::Result<Path>>,
+    ) -> BoxStream<'static, object_store::Result<Path>> {
+        self.inner.delete_stream(locations)
     }
 
-    async fn rename(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        (|| async { self.inner.rename(from, to).await })
-            .retry(Self::retry_builder())
-            .notify(Self::notify)
-            .when(Self::should_retry)
-            .await
-    }
-
-    async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        (|| async { self.inner.copy_if_not_exists(from, to).await })
-            .retry(Self::retry_builder())
-            .notify(Self::notify)
-            .when(Self::should_retry)
-            .await
-    }
-
-    async fn rename_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
-        (|| async { self.inner.rename_if_not_exists(from, to).await })
+    async fn copy_opts(
+        &self,
+        from: &Path,
+        to: &Path,
+        opts: object_store::CopyOptions,
+    ) -> object_store::Result<()> {
+        (|| async { self.inner.copy_opts(from, to, opts.clone()).await })
             .retry(Self::retry_builder())
             .notify(Self::notify)
             .when(Self::should_retry)
@@ -469,7 +437,7 @@ mod tests {
     use futures::TryStreamExt;
     use object_store::memory::InMemory;
     use object_store::path::Path;
-    use object_store::{ObjectStore, PutMode, PutOptions, PutPayload};
+    use object_store::{ObjectStore, ObjectStoreExt, PutMode, PutOptions, PutPayload};
     use std::sync::Arc;
 
     fn test_rand() -> Arc<DbRand> {

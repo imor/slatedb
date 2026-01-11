@@ -8,7 +8,7 @@ use futures::StreamExt;
 use log::{debug, warn};
 use object_store::path::Path;
 use object_store::Error::AlreadyExists;
-use object_store::{Error, ObjectStore, PutMode, PutOptions, PutPayload};
+use object_store::{Error, ObjectStore, ObjectStoreExt, PutMode, PutOptions, PutPayload};
 use std::collections::Bound;
 use std::collections::Bound::Unbounded;
 use std::ops::RangeBounds;

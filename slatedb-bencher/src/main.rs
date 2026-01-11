@@ -10,6 +10,7 @@ use futures::TryStreamExt;
 use object_store::path::Path;
 use object_store::Error as ObjectStoreError;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::PutPayload;
 use object_store::PutResult;
 use slatedb::admin;

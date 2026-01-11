@@ -10,7 +10,7 @@ use crate::rand::DbRand;
 use crate::utils::IdGenerator;
 use fail_parallel::{fail_point, FailPointRegistry};
 use object_store::path::Path;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
